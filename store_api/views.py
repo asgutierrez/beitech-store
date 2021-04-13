@@ -13,8 +13,8 @@ import datetime
 
 
 class Paginator:
-  @staticmethod
-  def pagination(count, limit, offset, path, query_params={}):
+    @staticmethod
+    def pagination(count, limit, offset, path, query_params={}):
 
         comp = []
         for key in query_params:
@@ -72,6 +72,18 @@ class CustomersView(APIView):
             )
 
 
+class CustomerView(APIView):
+
+    def get(self, request, customer_id, format=None):
+
+        self.customer_id = customer_id
+    
+        customer_object = Customer.objects.get(customer_id=self.customer_id)
+
+        self.customer = {'customer_id': customer_object.customer_id, 'name': customer_object.name, 'email': customer_object.email}
+
+        return Response(self.customer)
+
 
 
 class CustomerProductsView(APIView):
@@ -80,30 +92,30 @@ class CustomerProductsView(APIView):
 
     def get(self, request, customer_id, format=None):
 
-            serializer = self.serializerCustomerProducts_class(data=request.query_params)
+        serializer = self.serializerCustomerProducts_class(data=request.query_params)
 
-            if serializer.is_valid():
-                limit = serializer.validated_data.get('limit')
-                offset = serializer.validated_data.get('offset')
+        if serializer.is_valid():
+            limit = serializer.validated_data.get('limit')
+            offset = serializer.validated_data.get('offset')
 
-                all_entries = CustomerProduct.objects.select_related('product').filter(customer_id=customer_id).all()[offset:limit+offset]
-                count = CustomerProduct.objects.select_related('product').filter(customer_id=customer_id).count()
+            all_entries = CustomerProduct.objects.select_related('product').filter(customer_id=customer_id).all()[offset:limit+offset]
+            count = CustomerProduct.objects.select_related('product').filter(customer_id=customer_id).count()
 
-                next_page, previous_page = Paginator.pagination(count, limit, offset, request.path)
+            next_page, previous_page = Paginator.pagination(count, limit, offset, request.path)
 
-                products = [{'product_id': entry.product_id, 'name': entry.product.name, 'product_description': entry.product.product_description, 'price': entry.product.price} for entry in all_entries]
+            products = [{'product_id': entry.product_id, 'name': entry.product.name, 'product_description': entry.product.product_description, 'price': entry.product.price} for entry in all_entries]
 
-                return Response({'count': count, 'next': next_page, 'previous': previous_page, 'results': products})
+            return Response({'count': count, 'next': next_page, 'previous': previous_page, 'results': products})
 
-            else:
-                return Response(
-                    serializer.errors,
-                    status = status.HTTP_400_BAD_REQUEST
-                )
+        else:
+            return Response(
+                serializer.errors,
+                status = status.HTTP_400_BAD_REQUEST
+            )
 
     
 
-class CustomerOrdersAllView(APIView):
+class CustomerOrdersView(APIView):
 
     serializer_class = serializers.OrdersSerializer
     serializerProducts_class = serializers.OrdersProductsSerializer
@@ -246,54 +258,33 @@ class CustomerOrdersAllView(APIView):
 
         all_entries = OrderDetail.objects.select_related('product').filter(order=order_id).all()
 
-        order_details = [{'product_id': order_detail.product.product_id, 'name': order_detail.product.name, 'quantity': order_detail.quantity} for order_detail in all_entries]
+        self.products = [OrderDetailClass(order_detail) for order_detail in all_entries]
+        order_details = [{'product_id': order_detail.product_id, 'name': order_detail.name, 'quantity': order_detail.quantity} for order_detail in self.products]
 
         return order_details
 
 
+class OrderDetailClass(object):
+    def __init__(self, order_detail):
+        super(OrderDetailClass, self).__init__()
+        self.product_id = order_detail.product.product_id
+        self.name = order_detail.product.name
+        self.quantity = order_detail.quantity
 
-class CustomerOrdersView(APIView):
 
-    serializer_class = serializers.OrdersSerializer
-    serializerProducts_class = serializers.OrdersProductsSerializer
-    serializerCustomerOrders_class = serializers.CustomerOrdersSerializer
+class CustomerOrderView(APIView):
 
     def get(self, request, customer_id, order_id, format=None):
             
         self.customer_id = customer_id
 
-        serializer = self.serializerCustomerOrders_class(data=request.query_params)
+        self.order_id = order_id
 
-        if serializer.is_valid():
-            start_date = serializer.validated_data.get('start_date')
-            end_date = serializer.validated_data.get('end_date')
+        order_object = Order.objects.get(customer=self.customer_id, order_id=order_id)
 
-            limit = serializer.validated_data.get('limit')
-            offset = serializer.validated_data.get('offset')
+        self.order = {'order_id': self.order_id, 'customer_id': self.customer_id, 'creation_date': order_object.creation_date, 'delivery_address': order_object.delivery_address, 'total': order_object.total, 'products': self.get_order_details(self.order_id)}
 
-            if (start_date is None and end_date is None) :
-                all_entries = Order.objects.filter(customer=self.customer_id, order_id=order_id).all()[offset:limit+offset]
-                count = Order.objects.filter(customer=self.customer_id, order_id=order_id).count()
-            elif start_date is None:
-                all_entries = Order.objects.filter(customer=self.customer_id, order_id=order_id, creation_date__lte=end_date).all()[offset:limit+offset]
-                count = Order.objects.filter(customer=self.customer_id, order_id=order_id, creation_date__lte=end_date).count()
-            elif end_date is None:
-                all_entries = Order.objects.filter(customer=self.customer_id, order_id=order_id, creation_date__gte=start_date).all()[offset:limit+offset]
-                count = Order.objects.filter(customer=self.customer_id, order_id=order_id, creation_date__gte=start_date).count()
-            else:
-                all_entries = Order.objects.filter(customer=self.customer_id, order_id=order_id, creation_date__gte=start_date,  creation_date__lte=end_date).all()[offset:limit+offset]
-                count = Order.objects.filter(customer=self.customer_id, order_id=order_id, creation_date__gte=start_date,  creation_date__lte=end_date).count()
-
-        else:
-            return Response(
-                serializer.errors,
-                status = status.HTTP_400_BAD_REQUEST
-            )
-
-        next_page, previous_page = Paginator.pagination(count, limit, offset, request.path, request.query_params)
-        orders = [{'order_id': entry.order_id, 'customer_id': entry.customer_id, 'creation_date': entry.creation_date, 'delivery_address': entry.delivery_address, 'total': entry.total, 'products': self.get_order_details(entry.order_id)} for entry in all_entries]
-
-        return Response({'count': count, 'next': next_page, 'previous': previous_page, 'results': orders})
+        return Response(self.order)
     
     def get_order_details(self, order_id):
 
